@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+  html,
+  body {
+    @apply bg-ink-950 font-sans text-mist-100 antialiased;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    background-image: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(224, 49, 59, 0.08), transparent 60%);
+    background-attachment: fixed;
+    overscroll-behavior-y: none;
+  }
+  ::selection {
+    background: rgba(224, 49, 59, 0.35);
+  }
+}
+
+/* Harici oynatıcıların iframe'leri kapsayıcıyı doldursun */
+.oc-embed iframe,
+.oc-embed > div {
+  width: 100% !important;
+  height: 100% !important;
+  border: 0;
+  display: block;
+}
