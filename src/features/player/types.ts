@@ -1,7 +1,25 @@
-export type SourceKind = 'file' | 'hls' | 'youtube' | 'vimeo' | 'dailymotion' | 'twitch';
+export type SourceKind =
+  | 'file'
+  | 'hls'
+  | 'mpegts'
+  | 'youtube'
+  | 'vimeo'
+  | 'dailymotion'
+  | 'twitch';
+
+export interface SubtitleTrackSource {
+  label: string;
+  language: string;
+  url: string;
+  format: 'srt' | 'vtt';
+}
 
 export interface VideoSource {
   kind: SourceKind;
+  /** Use a full browser decoder for IPTV containers with embedded tracks. */
+  playerEngine?: 'vlc-wasm';
+  /** Override the IPTV player's normal automatic start on room restore. */
+  autoPlay?: boolean;
   /** Normalize edilmiş, paylaşılan bağlantı */
   url: string;
   /** YouTube video kimliği */
@@ -11,6 +29,8 @@ export interface VideoSource {
   /** Oynatıcı programatik olarak kontrol edilebiliyor mu (tam senkronizasyon) */
   syncCapable: boolean;
   platformLabel: string;
+  isLive?: boolean;
+  subtitleTracks?: SubtitleTrackSource[];
 }
 
 export type DetectFailureReason = 'empty' | 'invalid' | 'insecure' | 'unsupported_platform' | 'unknown';

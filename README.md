@@ -24,12 +24,13 @@
 │     └─ SyncEngine ◄─► RoomChannel (private Realtime)    │
 │           │             ├─ broadcast: play/pause/seek/load│
 │           │             └─ presence: çevrimiçi kullanıcılar│
-│           └─ room_state tablosuna kalıcı kayıt          │
+│           ├─ room_state oynatma durumunu saklar         │
+│           └─ room_chat_messages sohbeti saklar          │
 └──────────────────────────────────────────────────────────┘
                      │  anon anahtar + kullanıcı JWT
 ┌──────────────────── Supabase ────────────────────────────┐
 │ auth.users → profiles (tetikleyici)                       │
-│ rooms · room_members (maks. 2) · room_state               │
+│ rooms · room_members · room_state · room_chat_messages   │
 │ RLS: yalnızca oda üyeleri okur/yazar                      │
 │ realtime.messages RLS: yalnızca üyeler "room:<id>" kanalına│
 └───────────────────────────────────────────────────────────┘
@@ -48,7 +49,8 @@
 ```
 ourcinema/
 ├─ supabase/
-│  ├─ migrations/20261109000000_ourcinema_init.sql   # tablolar, RLS, Realtime yetkileri, oda
+│  ├─ migrations/20261109000000_ourcinema_init.sql   # ana şema, RLS, Realtime yetkileri
+│  ├─ migrations/20261119000000_room_chat_and_iptv_restore.sql # kalıcı sohbet ve IPTV seçimi
 │  └─ add_members.sql                                # iki kullanıcıyı odaya ekleme
 ├─ src/
 │  ├─ lib/            env.ts (anahtar güvenlik kontrolü), supabase.ts, rememberStorage.ts
@@ -80,7 +82,7 @@ ourcinema/
 | Netflix, Disney+, Prime, Max, BluTV, Exxen, Gain, TOD, tabii, puhutv, MUBI… | — | ❌ DRM korumalı; açıklayıcı mesaj + "Kaynak sitesinde aç" |
 | Diğer sayfalar (dizi siteleri vb.) | — | ❌ Açıklama + "Kaynak sitesinde aç" / "Video dosyası olarak dene" |
 
-> **Bilinçli sınırlama:** DRM, CORS, erişim kontrolü veya platform güvenliğini aşmaya yönelik hiçbir yöntem (video çıkarma, proxy, indirme) yoktur. Yalnızca platformların resmi gömme/oynatıcı API'leri kullanılır. Kontrol API'si olmayan gömmelerde tam senkronizasyon varmış gibi gösterilmez; durum satırında açıkça belirtilir.
+> IPTV akışları, sağlayıcı erişim denetimini koruyarak sunucudaki Range destekli proxy üzerinden tarayıcıya aktarılır. MP4/MKV dosyalarında VLC WebAssembly motoru gömülü ses ve altyazı parçalarını tarayıcı içinde oynatır. Bu motor için site yanıtlarında `Cross-Origin-Opener-Policy: same-origin` ve `Cross-Origin-Embedder-Policy: credentialless` başlıkları gerekir. DRM korumalı harici servis içerikleri oynatılamaz.
 
 ---
 
@@ -89,33 +91,36 @@ ourcinema/
 ### 3.1 Supabase projesi
 1. <https://supabase.com> → **New project**.
 2. **SQL Editor** → `supabase/migrations/20261109000000_ourcinema_init.sql` içeriğini yapıştırıp **Run**.
+3. **SQL Editor** → `supabase/migrations/20261119000000_room_chat_and_iptv_restore.sql` içeriğini yapıştırıp **Run**. Eski projede ana şema zaten kuruluysa yalnızca bu yeni sohbet migration'ını çalıştırın.
    (Supabase CLI kullanıyorsanız: `supabase link` → `supabase db push`.)
-3. **Authentication → Users → Add user → Create new user**: iki hesabı oluşturun, **Auto Confirm User** işaretli olsun.
-4. `supabase/add_members.sql` dosyasındaki e-posta ve isimleri değiştirip SQL Editor'da çalıştırın. Son sorgu iki satır döndürmelidir.
-5. **Authentication → Sign In / Providers → "Allow new users to sign up" KAPALI** (kimse kendi hesap açamaz).
-6. **Realtime → Settings → "Allow public access" KAPALI** (yalnızca yetkili private kanallar çalışır).
-7. **Project Settings → API**: `Project URL` ve **anon / publishable** anahtarını kopyalayın.
+4. **Authentication → Users → Add user → Create new user**: iki hesabı oluşturun, **Auto Confirm User** işaretli olsun.
+5. `supabase/add_members.sql` dosyasındaki e-posta ve isimleri değiştirip SQL Editor'da çalıştırın. Son sorgu iki satır döndürmelidir.
+6. **Authentication → Sign In / Providers → "Allow new users to sign up" KAPALI** (kimse kendi hesap açamaz).
+7. **Realtime → Settings → "Allow public access" KAPALI** (yalnızca yetkili private kanallar çalışır).
+8. **Project Settings → API**: `Project URL` ve **anon / publishable** anahtarını kopyalayın.
 
 > ⚠️ `service_role` / `secret` anahtarını asla frontend'e koymayın. Uygulama bunu algılarsa çalışmayı reddeder.
 
 ### 3.2 Yerelde çalıştırma
 ```bash
 npm install
-cp .env.example .env        # değerleri doldurun
-npm run dev                 # http://localhost:5173
+cp .env.example .env        # Supabase ve IPTV bilgilerini girin
+npm run server              # Xtream'e .env bilgileriyle otomatik bağlanır
+npm run dev                 # ayrı terminal: http://localhost:5173
 ```
-Telefonla aynı Wi-Fi'dan test için terminalde görünen `Network:` adresini açın. (Not: mobil tarayıcılarda bazı özellikler yalnızca HTTPS'te tam çalışır; gerçek mobil testi Vercel adresinde yapın.)
+IPTV için `IPTV_SERVER_URL`, `IPTV_USERNAME` ve `IPTV_PASSWORD` değerleri Express API sunucusunda tutulur. Tarayıcıya parola gönderilmez. İlk açılışta Xtream kataloğu otomatik yüklenir. Telefonla aynı Wi-Fi'dan test için terminalde görünen `Network:` adresini açın. Mobil tarayıcıların bazı özellikleri yalnızca HTTPS'te tam çalışır.
 
 ### 3.3 Vercel'de yayınlama
 1. Projeyi bir GitHub deposuna gönderin.
 2. <https://vercel.com/new> → depoyu içe aktarın (Framework: **Vite** otomatik algılanır).
-3. **Environment Variables**: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`.
-4. **Deploy**. `vercel.json` SPA yönlendirmesini ve güvenlik başlıklarını (CSP, HSTS, X-Frame-Options…) ekler.
+3. **Environment Variables**: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` ve ayrı API sunucusunun adresi için `VITE_IPTV_API_URL`.
+4. `vercel.json` SPA yönlendirmesini ve güvenlik başlıklarını (CSP, HSTS, X-Frame-Options…) ekler. IPTV API'si Vercel'den ayrı bir Node sunucusunda çalışmalıdır: `IPTV_SERVER_URL`, `IPTV_USERNAME`, `IPTV_PASSWORD` ve izin verilen site adresi için `IPTV_ALLOWED_ORIGINS` değerlerini o sunucunun secret/environment ayarlarına ekleyin. Altyazılar farklı bir CDN hostundan geliyorsa `IPTV_SUBTITLE_HOSTS` ile izin verilen hostname'leri ekleyin. `.env` dosyası veya parolalar Git deposuna gönderilmemelidir.
 5. Alternatif: `npm i -g vercel && vercel --prod`.
 
 ---
 
 ## 4. Test kontrol listesi (Aşama 10)
+- [ ] Odaya mesaj gönder → sayfayı yenile → son 100 mesaj ve gönderenler yükleniyor.
 - [ ] Hatalı şifre → "E-posta veya şifre hatalı."; internet kapalı → bağlantı mesajı.
 - [ ] "Beni hatırla" kapalıyken sekme kapatılınca oturum düşüyor.
 - [ ] İki cihazda giriş → üstte iki yeşil nokta, `2/2 çevrimiçi`. Biri çıkınca gri.

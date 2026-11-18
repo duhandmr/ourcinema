@@ -5,6 +5,24 @@ export type ChannelStatus = 'connecting' | 'connected' | 'reconnecting' | 'error
 
 type Listener<T> = (value: T) => void;
 
+export interface RoomChatMessage {
+  id: string;
+  userId: string;
+  text: string;
+  sentAt: number;
+}
+
+function isRoomChatMessage(value: unknown): value is RoomChatMessage {
+  if (!value || typeof value !== 'object') return false;
+  const message = value as Record<string, unknown>;
+  return (
+    typeof message.id === 'string' && message.id.length <= 100 &&
+    typeof message.userId === 'string' && message.userId.length <= 128 &&
+    typeof message.text === 'string' && message.text.trim().length > 0 && message.text.length <= 1000 &&
+    typeof message.sentAt === 'number' && Number.isSafeInteger(message.sentAt) && Math.abs(message.sentAt) <= 8_640_000_000_000_000
+  );
+}
+
 /**
  * Oda başına tek bir özel (private) Supabase Realtime kanalı.
  * - broadcast: oynatma komutları
@@ -17,6 +35,7 @@ export class RoomChannel {
   private connectedOnce = false;
   private closed = false;
   private readonly messageListeners = new Set<Listener<SyncMessage>>();
+  private readonly chatListeners = new Set<Listener<RoomChatMessage>>();
   private readonly presenceListeners = new Set<Listener<string[]>>();
   private readonly statusListeners = new Set<Listener<ChannelStatus>>();
 
@@ -47,6 +66,11 @@ export class RoomChannel {
     channel.on('broadcast', { event: 'sync' }, (message) => {
       const payload: unknown = (message as { payload?: unknown }).payload;
       if (isSyncMessage(payload)) this.messageListeners.forEach((l) => l(payload));
+    });
+
+    channel.on('broadcast', { event: 'chat' }, (message) => {
+      const payload: unknown = (message as { payload?: unknown }).payload;
+      if (isRoomChatMessage(payload)) this.chatListeners.forEach((listener) => listener(payload));
     });
 
     channel.on('presence', { event: 'sync' }, () => {
@@ -80,6 +104,16 @@ export class RoomChannel {
     return () => this.messageListeners.delete(listener);
   }
 
+  sendChat(message: RoomChatMessage): void {
+    if (!this.channel || this.closed) return;
+    void this.channel.send({ type: 'broadcast', event: 'chat', payload: message }).catch(() => undefined);
+  }
+
+  onChatMessage(listener: Listener<RoomChatMessage>): () => void {
+    this.chatListeners.add(listener);
+    return () => this.chatListeners.delete(listener);
+  }
+
   onPresence(listener: Listener<string[]>): () => void {
     this.presenceListeners.add(listener);
     return () => this.presenceListeners.delete(listener);
@@ -96,6 +130,7 @@ export class RoomChannel {
     const channel = this.channel;
     this.channel = null;
     this.messageListeners.clear();
+    this.chatListeners.clear();
     this.presenceListeners.clear();
     this.statusListeners.clear();
     if (channel) {

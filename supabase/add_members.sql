@@ -12,7 +12,7 @@ from auth.users u
 where u.id = p.id and lower(u.email) = lower('SENIN-EPOSTAN@ornek.com');
 
 update public.profiles p
-set display_name = 'Sevgilim'
+set display_name = 'Hisin'
 from auth.users u
 where u.id = p.id and lower(u.email) = lower('ONUN-EPOSTASI@ornek.com');
 
