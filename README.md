@@ -113,9 +113,11 @@ IPTV için `IPTV_SERVER_URL`, `IPTV_USERNAME` ve `IPTV_PASSWORD` değerleri Expr
 ### 3.3 Vercel'de yayınlama
 1. Projeyi bir GitHub deposuna gönderin.
 2. <https://vercel.com/new> → depoyu içe aktarın (Framework: **Vite** otomatik algılanır).
-3. **Environment Variables**: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` ve ayrı API sunucusunun adresi için `VITE_IPTV_API_URL`.
-4. `vercel.json` SPA yönlendirmesini ve güvenlik başlıklarını (CSP, HSTS, X-Frame-Options…) ekler. IPTV API'si Vercel'den ayrı bir Node sunucusunda çalışmalıdır: `IPTV_SERVER_URL`, `IPTV_USERNAME`, `IPTV_PASSWORD` ve izin verilen site adresi için `IPTV_ALLOWED_ORIGINS` değerlerini o sunucunun secret/environment ayarlarına ekleyin. Altyazılar farklı bir CDN hostundan geliyorsa `IPTV_SUBTITLE_HOSTS` ile izin verilen hostname'leri ekleyin. `.env` dosyası veya parolalar Git deposuna gönderilmemelidir.
-5. Alternatif: `npm i -g vercel && vercel --prod`.
+3. **Environment Variables** bölümüne `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` ekleyin.
+4. IPTV giriş değerlerini Vercel'de **Sensitive** olarak `IPTV_SERVER_URL`, `IPTV_USERNAME`, `IPTV_PASSWORD` ve isteğe bağlı `IPTV_STREAM_FORMAT` adlarıyla ekleyin. `IPTV_ALLOWED_ORIGINS` değerini uygulamanın canlı adresi yapın (ör. `https://ourcinema-delta.vercel.app`).
+5. `api/[...path].ts`, `/api/iptv/*` isteklerini aynı Vercel projesindeki Node.js Function üzerinden Express API'ye iletir. Bu nedenle frontend'de `VITE_IPTV_API_URL` gerekli değildir. Altyazı veya yayın parçaları sağlayıcıdan farklı bir hostname ile geliyorsa ilgili hostname'leri `IPTV_SUBTITLE_HOSTS` / `IPTV_STREAM_HOSTS` içine virgülle ayırarak ekleyin.
+6. `.env` dosyası veya IPTV parolaları Git deposuna gönderilmemelidir. Vercel Functions stateless çalıştığı için süreç belleğindeki katalog ve önbellek her instance'ta ayrıdır; kimlik bilgileri isteklerde sunucu ortam değişkenlerinden geri yüklenir.
+7. Alternatif: `npm i -g vercel && vercel --prod`.
 
 ---
 

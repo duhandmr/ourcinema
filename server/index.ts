@@ -1,12 +1,11 @@
 
-import express, { type Request, type Response } from 'express';
+import express, { type Request, type Response as ExpressResponse } from 'express';
 import { isIP } from 'node:net';
 import { lookup } from 'node:dns/promises';
 import { createHash } from 'node:crypto';
 import { Readable } from 'node:stream';
 
-const app = express();
-const PORT = 3001;
+export const app = express();
 
 const MAX_PLAYLIST_SIZE = 100 * 1024 * 1024;
 const MAX_API_RESPONSE_SIZE = 25 * 1024 * 1024;
@@ -986,7 +985,7 @@ app.get('/api/iptv/xtream/vod/:vodId', async (req, res) => {
 // on the IPTV provider enabling cross-origin requests.
 const streamProxyPaths = ['/api/iptv/stream', '/api/iptv/stream/:filename'];
 
-const handleIptvStream = async (req: Request, res: Response) => {
+const handleIptvStream = async (req: Request, res: ExpressResponse) => {
     try {
         const credentials = getActiveCredentials();
         const rawUrl = req.query.url;
@@ -1727,33 +1726,35 @@ app.post('/api/iptv/playlist', async (req, res) => {
 // Sunucuyu başlat
 // --------------------------------------------------
 
-async function startServer() {
-    try {
-        const credentials = getEnvironmentCredentials();
+let initialization: Promise<void> | null = null;
 
-        if (credentials) {
-            await testXtreamConnection(credentials);
-            xtreamCredentials = credentials;
-            xtreamConnectedAt = Date.now();
-            console.log('[IPTV] Sunucu ortam değişkenlerinden Xtream bağlantısı hazır.');
+export function initializeServer(): Promise<void> {
+    if (initialization) return initialization;
+
+    initialization = (async () => {
+        try {
+            const credentials = getEnvironmentCredentials();
+
+            if (credentials) {
+                await testXtreamConnection(credentials);
+                xtreamCredentials = credentials;
+                xtreamConnectedAt = Date.now();
+                console.log('[IPTV] Sunucu ortam değişkenlerinden Xtream bağlantısı hazır.');
+            }
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : 'Bilinmeyen bağlantı hatası';
+            const errorCode =
+                error && typeof error === 'object' && 'code' in error
+                    ? String(error.code)
+                    : '';
+            xtreamEnvironmentError =
+                errorCode === 'ENOTFOUND'
+                    ? 'IPTV sunucu adresi DNS üzerinden bulunamadı. IPTV_SERVER_URL değerini sağlayıcınızın verdiği adresle kontrol edin.'
+                    : message;
+            console.error('[IPTV] Sunucu ortam değişkenleriyle otomatik giriş yapılamadı:', message);
         }
-    } catch (error) {
-        const message =
-            error instanceof Error ? error.message : 'Bilinmeyen bağlantı hatası';
-        const errorCode =
-            error && typeof error === 'object' && 'code' in error
-                ? String(error.code)
-                : '';
-        xtreamEnvironmentError =
-            errorCode === 'ENOTFOUND'
-                ? 'IPTV sunucu adresi DNS üzerinden bulunamadı. IPTV_SERVER_URL değerini sağlayıcınızın verdiği adresle kontrol edin.'
-                : message;
-        console.error('[IPTV] Sunucu ortam değişkenleriyle otomatik giriş yapılamadı:', message);
-    }
+    })();
 
-    app.listen(PORT, () => {
-        console.log(`OurCinema API çalışıyor: http://localhost:${PORT}`);
-    });
+    return initialization;
 }
-
-void startServer();
