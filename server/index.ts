@@ -34,12 +34,6 @@ interface XtreamCredentials {
     password: string;
 }
 
-interface XtreamCategory {
-    category_id: string;
-    category_name: string;
-    parent_id?: string | null;
-}
-
 interface XtreamCachedItem {
     id: string;
     name: string;
