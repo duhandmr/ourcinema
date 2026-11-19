@@ -404,7 +404,11 @@ async function requestXtream<T>(
                 method: 'GET',
                 redirect: 'error',
                 signal: attemptController.signal,
-                headers: { Accept: 'application/json' },
+                headers: {
+                    Accept: 'application/json, text/plain, */*',
+                    'User-Agent':
+                        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                },
             });
         } catch (error) {
             if (error instanceof Error && error.name === 'AbortError') {

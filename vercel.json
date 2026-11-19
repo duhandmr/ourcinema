@@ -6,6 +6,7 @@
   "functions": {
     "api/iptv.ts": {
       "maxDuration": 300,
+      "regions": ["fra1"],
       "includeFiles": "server/index.ts"
     }
   },
