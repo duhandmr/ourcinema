@@ -390,29 +390,40 @@ async function requestXtream<T>(
         apiUrl.searchParams.set(key, value);
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(
-        () => controller.abort(),
-        REQUEST_TIMEOUT,
-    );
+    let response: Response | null = null;
 
-    let response: Response;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+        const attemptController = new AbortController();
+        const attemptTimeout = setTimeout(
+            () => attemptController.abort(),
+            REQUEST_TIMEOUT,
+        );
 
-    try {
-        response = await fetch(apiUrl, {
-            method: 'GET',
-            redirect: 'error',
-            signal: controller.signal,
-            headers: { Accept: 'application/json' },
-        });
-    } catch (error) {
-        if (error instanceof Error && error.name === 'AbortError') {
-            throw new Error('Xtream API zamanında yanıt vermedi.');
+        try {
+            response = await fetch(apiUrl, {
+                method: 'GET',
+                redirect: 'error',
+                signal: attemptController.signal,
+                headers: { Accept: 'application/json' },
+            });
+        } catch (error) {
+            if (error instanceof Error && error.name === 'AbortError') {
+                throw new Error('Xtream API zamanında yanıt vermedi.');
+            }
+
+            throw new Error('Xtream API bağlantısı kurulamadı.');
+        } finally {
+            clearTimeout(attemptTimeout);
         }
 
-        throw new Error('Xtream API bağlantısı kurulamadı.');
-    } finally {
-        clearTimeout(timeout);
+        if (response.status !== 520 || attempt === 1) break;
+
+        await response.body?.cancel();
+        await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+
+    if (!response) {
+        throw new Error('Xtream API yanıt vermedi.');
     }
 
     if (!response.ok) {
@@ -1730,10 +1741,13 @@ export function initializeServer(): Promise<void> {
             const credentials = getEnvironmentCredentials();
 
             if (credentials) {
-                await testXtreamConnection(credentials);
+                // Do not issue an extra Xtream login request on every cold
+                // serverless instance. The first real catalog request will
+                // validate provider availability and can retry transient 520s.
                 xtreamCredentials = credentials;
                 xtreamConnectedAt = Date.now();
-                console.log('[IPTV] Sunucu ortam değişkenlerinden Xtream bağlantısı hazır.');
+                xtreamEnvironmentError = null;
+                console.log('[IPTV] Sunucu ortam değişkenlerinden Xtream ayarları yüklendi.');
             }
         } catch (error) {
             const message =

@@ -580,8 +580,16 @@ export function IptvPanel({
             ? storedGroup
             : 'Tümü',
         );
-      } catch {
-        // Katalog yoksa kullanıcı manuel bağlantı kurabilir.
+      } catch (err) {
+        if (cancelled) return;
+
+        setCatalogReady(false);
+        setShowConnection(true);
+        setXtreamError(
+          err instanceof Error
+            ? err.message
+            : 'IPTV kataloğu sağlayıcıdan yüklenemedi.',
+        );
       } finally {
         if (!cancelled) {
           setLoading(false);
