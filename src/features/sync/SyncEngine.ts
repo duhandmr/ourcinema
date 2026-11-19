@@ -401,6 +401,24 @@ export class SyncEngine {
   }
 
   localSeek(position: number): boolean {
+    if (this.iptvSession) {
+      if (!this.isSeekableIptv() || !this.controller) return false;
+      if (performance.now() < this.suppressUntil) return false;
+
+      const playing = !this.controller.isPaused();
+      this.leaderId = this.userId;
+      this.iptvPlaybackKnown = true;
+      this.expected = {
+        ...this.expected,
+        position,
+        playing,
+        at: this.clock.now(),
+      };
+      this.send({ type: 'iptv_seek', position, playing });
+      this.persistExpected();
+      return true;
+    }
+
     if (!this.acceptLocal()) return false;
 
     const playing = this.controller
@@ -455,10 +473,14 @@ export class SyncEngine {
     switch (msg.type) {
       case 'request_state':
         if (this.iptvSession) {
-          this.send({
+          const state: SyncPayload = {
             type: 'iptv_state',
             playing: this.controller ? !this.controller.isPaused() : this.expected.playing,
-          });
+          };
+          if (this.isSeekableIptv()) {
+            state.position = this.controller?.getCurrentTime() ?? this.expected.position;
+          }
+          this.send(state);
         } else if (this.expected.url) {
           this.send(this.snapshot(true));
         }
@@ -495,11 +517,25 @@ export class SyncEngine {
         this.iptvPlaybackKnown = true;
         this.expected = {
           ...this.expected,
+          position: msg.position ?? this.expected.position,
           playing: msg.type === 'iptv_play',
-          at: this.clock.now(),
+          at: this.messageTime(msg.sentAt),
         };
         this.applyIptvPlayback();
         this.hooks.onActivity(msg.type === 'iptv_play' ? 'play' : 'pause', msg.by, 0);
+        return;
+
+      case 'iptv_seek':
+        this.leaderId = msg.by;
+        this.iptvPlaybackKnown = true;
+        this.expected = {
+          ...this.expected,
+          position: msg.position,
+          playing: msg.playing,
+          at: this.messageTime(msg.sentAt),
+        };
+        this.applyIptvPlayback();
+        this.hooks.onActivity('seek', msg.by, msg.position);
         return;
 
       case 'iptv_state':
@@ -507,8 +543,9 @@ export class SyncEngine {
         this.iptvPlaybackKnown = true;
         this.expected = {
           ...this.expected,
+          position: msg.position ?? this.expected.position,
           playing: msg.playing,
-          at: this.clock.now(),
+          at: msg.position === undefined ? this.clock.now() : this.messageTime(msg.sentAt),
         };
         this.applyIptvPlayback();
         return;
@@ -724,7 +761,9 @@ export class SyncEngine {
       position: this.controller.getCurrentTime(),
       at: this.clock.now(),
     };
-    this.send({ type: playing ? 'iptv_play' : 'iptv_pause' });
+    this.send(this.isSeekableIptv()
+      ? { type: playing ? 'iptv_play' : 'iptv_pause', position: this.expected.position }
+      : { type: playing ? 'iptv_play' : 'iptv_pause' });
     this.persistExpected();
     return true;
   }
@@ -734,17 +773,30 @@ export class SyncEngine {
     if (!this.iptvSession || !controller || !this.iptvPlaybackKnown) return;
 
     const paused = controller.isPaused();
-    if (paused === !this.expected.playing) return;
+    const target = this.projectedPosition();
+    const needSeek = this.isSeekableIptv() &&
+      Math.abs(controller.getCurrentTime() - target) > DRIFT_TOLERANCE;
+    const needPlay = this.expected.playing && paused;
+    const needPause = !this.expected.playing && !paused;
+    if (!needSeek && !needPlay && !needPause) return;
 
     this.suppress();
+    if (needSeek) controller.seek(target);
     if (!this.expected.playing) {
-      controller.pause();
+      if (needPause) controller.pause();
       return;
     }
 
-    controller.play().then(() => this.hooks.onNeedsGesture(false)).catch((err: unknown) => {
-      this.hooks.onNeedsGesture(err instanceof AutoplayBlockedError);
-    });
+    if (needPlay) {
+      controller.play().then(() => this.hooks.onNeedsGesture(false)).catch((err: unknown) => {
+        this.hooks.onNeedsGesture(err instanceof AutoplayBlockedError);
+      });
+    }
+  }
+
+  private isSeekableIptv(): boolean {
+    return this.iptvSelection.iptv_content_type === 'movie' ||
+      this.iptvSelection.iptv_content_type === 'series';
   }
 
   // --------------------------------------------------
@@ -753,6 +805,24 @@ export class SyncEngine {
 
   private tick(): void {
     const c = this.controller;
+
+    if (this.iptvSession) {
+      if (
+        !c ||
+        !this.isSeekableIptv() ||
+        this.leaderId !== this.userId ||
+        c.isPaused()
+      ) return;
+
+      this.expected = {
+        ...this.expected,
+        position: c.getCurrentTime(),
+        playing: true,
+        at: this.clock.now(),
+      };
+      this.send({ type: 'iptv_state', position: this.expected.position, playing: true });
+      return;
+    }
 
     if (
       !c ||

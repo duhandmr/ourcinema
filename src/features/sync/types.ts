@@ -30,9 +30,10 @@ export interface PersistPayload {
 export type SyncPayload =
   | { type: 'load'; url: string; sourceType: SourceKind | null }
   | { type: 'iptv_load'; channelId: string; contentType: 'live' | 'movie' | 'series' }
-  | { type: 'iptv_play' }
-  | { type: 'iptv_pause' }
-  | { type: 'iptv_state'; playing: boolean }
+  | { type: 'iptv_play'; position?: number }
+  | { type: 'iptv_pause'; position?: number }
+  | { type: 'iptv_seek'; position: number; playing: boolean }
+  | { type: 'iptv_state'; playing: boolean; position?: number }
   | {
       type: 'iptv_episode_load';
       seriesId: string;
@@ -102,8 +103,16 @@ export function isSyncMessage(value: unknown): value is SyncMessage {
     );
   }
 
-  if (m.type === 'iptv_play' || m.type === 'iptv_pause') return true;
-  if (m.type === 'iptv_state') return typeof m.playing === 'boolean';
+  if (m.type === 'iptv_play' || m.type === 'iptv_pause') {
+    return m.position === undefined || isPosition(m.position);
+  }
+  if (m.type === 'iptv_seek') {
+    return isPosition(m.position) && typeof m.playing === 'boolean';
+  }
+  if (m.type === 'iptv_state') {
+    return typeof m.playing === 'boolean' &&
+      (m.position === undefined || isPosition(m.position));
+  }
 
   // Dizi bölümü: yalnızca sayısal kimlikler gönderilir.
   if (m.type === 'iptv_episode_load') {
