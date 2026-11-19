@@ -3,14 +3,17 @@ import { getSupabase } from '../../lib/supabase';
 /** Builds IPTV API URLs for Vercel or an independently hosted API server. */
 export function iptvApiUrl(path: string): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  const configuredOrigin = import.meta.env.VITE_IPTV_API_URL?.trim().replace(/\/+$/, '');
-  // Temporary Quick Tunnel for the authorized live trial; set VITE_IPTV_API_URL
-  // when replacing it with a named, stable Cloudflare Tunnel.
-  const apiOrigin = configuredOrigin || (import.meta.env.PROD
-    ? 'https://rfc-plasma-introducing-institutes.trycloudflare.com'
-    : '');
+  // Keep API calls same-origin so browsers do not have to CORS-fetch the home tunnel.
+  return normalizedPath;
+}
 
-  return apiOrigin ? `${apiOrigin}${normalizedPath}` : normalizedPath;
+function iptvPlaybackOrigin(): string {
+  const configuredOrigin = import.meta.env.VITE_IPTV_PLAYBACK_ORIGIN?.trim().replace(/\/+$/, '');
+  // Media is streamed directly from the home API to avoid Vercel's function
+  // duration and bandwidth limits. Control/API requests remain same-origin.
+  return configuredOrigin || (import.meta.env.PROD
+    ? 'https://rfc-plasma-introducing-institutes.trycloudflare.com'
+    : window.location.origin);
 }
 
 /** Sends the current Supabase session with every IPTV API request. */
@@ -30,7 +33,7 @@ export async function iptvFetch(
 
 /** Adds the session token to media URLs, which native video engines cannot authenticate with headers. */
 export async function authorizeIptvPlaybackUrl(url: string): Promise<string> {
-  const playbackUrl = new URL(url, window.location.href);
+  const playbackUrl = new URL(url, iptvPlaybackOrigin());
   const upstreamUrl = playbackUrl.searchParams.get('url') || url;
   const response = await iptvFetch('/api/iptv/playback-token', {
     method: 'POST',
