@@ -86,7 +86,9 @@ export function VideoStage({
           {(source.kind === 'file' ||
             source.kind === 'hls' ||
             source.kind === 'mpegts') && (
-            source.playerEngine === 'vlc-wasm' ? (
+            source.playerEngine === 'vlc-wasm' &&
+            typeof window !== 'undefined' &&
+            window.crossOriginIsolated ? (
               <VlcWasmPlayer source={source} callbacks={callbacks} />
             ) : (
               <Html5Player source={source} callbacks={callbacks} />

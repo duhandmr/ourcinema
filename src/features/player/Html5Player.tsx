@@ -11,7 +11,7 @@ import {
 } from './types';
 import { useLatest } from './useLatest';
 
-function mediaErrorMessage(error: MediaError | null): string {
+function mediaErrorMessage(error: MediaError | null, source: VideoSource): string {
   switch (error?.code) {
     case 1:
       return 'Video yüklemesi durduruldu.';
@@ -20,6 +20,9 @@ function mediaErrorMessage(error: MediaError | null): string {
     case 3:
       return 'Video çözümlenemedi. Dosya bozuk veya tarayıcı bu kodeki desteklemiyor olabilir.';
     case 4:
+      if (source.playerEngine === 'vlc-wasm' && !window.crossOriginIsolated) {
+        return 'Bu video biçimi bu tarayıcıda yerel oynatılamıyor. HLS veya Safari uyumlu MP4 akışı gerekir.';
+      }
       return 'Video oynatılamıyor. Format desteklenmiyor ya da kaynak sunucu dışarıdan erişime izin vermiyor.';
     default:
       return 'Video oynatılamadı.';
@@ -200,7 +203,7 @@ export function Html5Player({ source, callbacks }: Props) {
     const onSeeked = () => cb.current.onSeek(video.currentTime);
 
     const onError = () => {
-      cb.current.onError(mediaErrorMessage(video.error));
+      cb.current.onError(mediaErrorMessage(video.error, source));
     };
 
     video.addEventListener('loadedmetadata', onLoaded);
