@@ -42,5 +42,9 @@ export default defineConfig({
   build: {
     target: 'esnext',
     sourcemap: false,
+    // AudioWorklet modules cannot be loaded from a data: URL under the site's
+    // script-src policy. Emit libvlc-wasm's worklet as a same-origin asset.
+    assetsInlineLimit: (filePath) =>
+      filePath.endsWith('audio-worklet.js') ? false : undefined,
   },
 });
