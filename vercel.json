@@ -4,7 +4,10 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "functions": {
-    "api/iptv.ts": { "maxDuration": 300 }
+    "api/iptv.ts": {
+      "maxDuration": 300,
+      "includeFiles": "server/index.ts"
+    }
   },
   "rewrites": [
     { "source": "/api/iptv/:path*", "destination": "/api/iptv?path=:path*" },
