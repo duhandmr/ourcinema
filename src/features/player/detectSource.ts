@@ -136,7 +136,7 @@ function detectIptvSource(
   if (!extension) {
     return ok({
       kind: 'mpegts',
-      url: url.toString(),
+      url: proxiedUrl,
       syncCapable: false,
       platformLabel: 'IPTV yayını',
       isLive,
