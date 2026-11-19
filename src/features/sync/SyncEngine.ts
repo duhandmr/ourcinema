@@ -15,6 +15,7 @@ import type {
 
 const SEEK_TOLERANCE = 0.75;
 const DRIFT_TOLERANCE = 1.5;
+const IPTV_DRIFT_TOLERANCE = 4;
 const SUPPRESS_MS = 1200;
 const HEARTBEAT_MS = 4000;
 const MAX_LATENCY_COMPENSATION_S = 5;
@@ -521,7 +522,7 @@ export class SyncEngine {
           playing: msg.type === 'iptv_play',
           at: this.messageTime(msg.sentAt),
         };
-        this.applyIptvPlayback();
+        this.applyIptvPlayback(SEEK_TOLERANCE);
         this.hooks.onActivity(msg.type === 'iptv_play' ? 'play' : 'pause', msg.by, 0);
         return;
 
@@ -534,7 +535,7 @@ export class SyncEngine {
           playing: msg.playing,
           at: this.messageTime(msg.sentAt),
         };
-        this.applyIptvPlayback();
+        this.applyIptvPlayback(SEEK_TOLERANCE);
         this.hooks.onActivity('seek', msg.by, msg.position);
         return;
 
@@ -547,7 +548,7 @@ export class SyncEngine {
           playing: msg.playing,
           at: msg.position === undefined ? this.clock.now() : this.messageTime(msg.sentAt),
         };
-        this.applyIptvPlayback();
+        this.applyIptvPlayback(IPTV_DRIFT_TOLERANCE);
         return;
 
       case 'load':
@@ -768,14 +769,14 @@ export class SyncEngine {
     return true;
   }
 
-  private applyIptvPlayback(): void {
+  private applyIptvPlayback(seekTolerance = SEEK_TOLERANCE): void {
     const controller = this.controller;
     if (!this.iptvSession || !controller || !this.iptvPlaybackKnown) return;
 
     const paused = controller.isPaused();
     const target = this.projectedPosition();
     const needSeek = this.isSeekableIptv() &&
-      Math.abs(controller.getCurrentTime() - target) > DRIFT_TOLERANCE;
+      Math.abs(controller.getCurrentTime() - target) > seekTolerance;
     const needPlay = this.expected.playing && paused;
     const needPause = !this.expected.playing && !paused;
     if (!needSeek && !needPlay && !needPause) return;
