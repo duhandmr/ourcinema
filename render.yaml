@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: ourcinema-iptv-api
+    runtime: node
+    region: frankfurt
+    plan: free
+    buildCommand: npm install --include=dev
+    startCommand: npm run start:iptv
+    healthCheckPath: /api/iptv/xtream/session
+    envVars:
+      - key: IPTV_SERVER_URL
+        sync: false
+      - key: IPTV_USERNAME
+        sync: false
+      - key: IPTV_PASSWORD
+        sync: false
+      - key: IPTV_STREAM_FORMAT
+        value: hls
+      - key: IPTV_STREAM_HOSTS
+        sync: false
+      - key: IPTV_SUBTITLE_HOSTS
+        sync: false
+      - key: IPTV_ALLOWED_ORIGINS
+        sync: false

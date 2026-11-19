@@ -8,7 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "server": "node --env-file-if-exists=.env --import tsx --watch server/local.ts"
+    "server": "node --env-file-if-exists=.env --import tsx --watch server/local.ts",
+    "start:iptv": "tsx server/local.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
