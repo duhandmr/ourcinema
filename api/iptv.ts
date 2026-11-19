@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Request, Response } from 'express';
-import { app, initializeServer } from '../server';
+import { app, initializeServer } from '../server/index.ts';
 
 export default async function handler(
     request: IncomingMessage,

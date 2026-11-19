@@ -1,4 +1,4 @@
-import { app, initializeServer } from './index';
+import { app, initializeServer } from './index.ts';
 
 const PORT = Number(process.env.PORT) || 3001;
 
