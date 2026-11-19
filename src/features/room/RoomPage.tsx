@@ -17,7 +17,7 @@ import type {
 import { UrlBar } from '../player/UrlBar';
 import { VideoStage } from '../player/VideoStage';
 import { IptvPanel } from '../iptv/IptvPanel';
-import { iptvApiUrl } from '../iptv/api';
+import { authorizeIptvPlaybackUrl, iptvFetch } from '../iptv/api';
 import type { IptvChannel } from '../iptv/m3u';
 import { RoomChannel, type ChannelStatus, type RoomChatMessage } from '../realtime/RoomChannel';
 import {
@@ -263,10 +263,8 @@ function Room({ data, user, onSignOut }: RoomProps) {
 
       if (contentType === 'movie') {
         try {
-          const response = await fetch(
-            iptvApiUrl(
-              `/api/iptv/xtream/vod/${encodeURIComponent(channelId)}`,
-            ),
+          const response = await iptvFetch(
+            `/api/iptv/xtream/vod/${encodeURIComponent(channelId)}`,
           );
           const data = (await response.json()) as
             | XtreamVodResponse
@@ -313,6 +311,16 @@ function Room({ data, user, onSignOut }: RoomProps) {
         return;
       }
 
+      let playbackUrl: string;
+      try {
+        playbackUrl = await authorizeIptvPlaybackUrl(result.source.url);
+      } catch (error) {
+        if (requestId !== episodeRequestRef.current) return;
+        setPlayerError(error instanceof Error ? error.message : 'IPTV oturumu doğrulanamadı.');
+        return;
+      }
+      if (requestId !== episodeRequestRef.current) return;
+
       isIptvRef.current = true;
       setIsIptv(true);
 
@@ -321,6 +329,7 @@ function Room({ data, user, onSignOut }: RoomProps) {
       setLoadNonce((n) => n + 1);
       setSource({
         ...result.source,
+        url: playbackUrl,
         isLive: contentType === 'live',
         ...(autoPlay === undefined ? {} : { autoPlay }),
         subtitleTracks,
@@ -366,10 +375,8 @@ function Room({ data, user, onSignOut }: RoomProps) {
         setFailure(null);
         setNeedsGesture(false);
 
-        const response = await fetch(
-          iptvApiUrl(
-            `/api/iptv/xtream/series/${encodeURIComponent(seriesId)}`,
-          ),
+        const response = await iptvFetch(
+          `/api/iptv/xtream/series/${encodeURIComponent(seriesId)}`,
         );
 
         const data = (await response.json()) as
@@ -418,6 +425,8 @@ function Room({ data, user, onSignOut }: RoomProps) {
         if (!isSupportedIptvSource(result.source)) {
           throw new Error('Bu bölümün yayın formatı desteklenmiyor.');
         }
+        const playbackUrl = await authorizeIptvPlaybackUrl(result.source.url);
+        if (requestId !== episodeRequestRef.current) return;
 
         isIptvRef.current = true;
         pendingIptvChannelIdRef.current = null;
@@ -430,6 +439,7 @@ function Room({ data, user, onSignOut }: RoomProps) {
 
         setSource({
           ...result.source,
+          url: playbackUrl,
           isLive: false,
           ...(autoPlay === undefined ? {} : { autoPlay }),
           subtitleTracks: episode.subtitles,
@@ -771,7 +781,8 @@ function Room({ data, user, onSignOut }: RoomProps) {
 
   /** IPTV kanalını veya dizi bölümünü açar ve senkronize eder. */
   const handleSelectIptvChannel = useCallback(
-    (channel: IptvChannel) => {
+    async (channel: IptvChannel) => {
+      const requestId = ++episodeRequestRef.current;
       const result = detectSource(channel.url, {
         iptv: true,
         contentType: channel.type,
@@ -789,6 +800,16 @@ function Room({ data, user, onSignOut }: RoomProps) {
         return;
       }
 
+      let playbackUrl: string;
+      try {
+        playbackUrl = await authorizeIptvPlaybackUrl(result.source.url);
+      } catch (error) {
+        if (requestId !== episodeRequestRef.current) return;
+        setPlayerError(error instanceof Error ? error.message : 'IPTV oturumu doğrulanamadı.');
+        return;
+      }
+      if (requestId !== episodeRequestRef.current) return;
+
       // Dizi bölümü için iki kimlik de zorunludur.
       if (channel.type === 'series') {
         if (
@@ -803,8 +824,6 @@ function Room({ data, user, onSignOut }: RoomProps) {
           return;
         }
       }
-
-      episodeRequestRef.current += 1;
 
       isIptvRef.current = true;
       pendingIptvChannelIdRef.current = null;
@@ -824,6 +843,7 @@ function Room({ data, user, onSignOut }: RoomProps) {
 
       setSource({
         ...result.source,
+        url: playbackUrl,
         isLive: channel.type === 'live',
         subtitleTracks: channel.subtitleTracks,
       });

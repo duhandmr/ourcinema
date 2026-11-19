@@ -4,7 +4,7 @@ import {
   type IptvChannel,
   type IptvContentType,
 } from './m3u';
-import { iptvApiUrl } from './api';
+import { iptvFetch } from './api';
 import type { SubtitleTrackSource } from '../player/types';
 
 interface IptvPanelProps {
@@ -362,9 +362,7 @@ export function IptvPanel({
       params.set('group', group);
     }
 
-    const response = await fetch(
-      iptvApiUrl(`/api/iptv/catalog/items?${params.toString()}`),
-    );
+    const response = await iptvFetch(`/api/iptv/catalog/items?${params.toString()}`);
 
     const data = await readResponse<CatalogItemsResponse>(response);
 
@@ -402,9 +400,7 @@ export function IptvPanel({
   async function fetchXtreamCategories(
     type: IptvContentType,
   ): Promise<XtreamCategory[]> {
-    const response = await fetch(
-      iptvApiUrl(`/api/iptv/xtream/categories?type=${type}`),
-    );
+    const response = await iptvFetch(`/api/iptv/xtream/categories?type=${type}`);
 
     const data = await readResponse<XtreamCategoriesResponse>(
       response,
@@ -432,9 +428,7 @@ export function IptvPanel({
       params.set('categoryId', categoryId);
     }
 
-    const response = await fetch(
-      iptvApiUrl(`/api/iptv/xtream/items?${params.toString()}`),
-    );
+    const response = await iptvFetch(`/api/iptv/xtream/items?${params.toString()}`);
 
     return readResponse<XtreamItemsResponse>(response);
   }
@@ -500,9 +494,7 @@ export function IptvPanel({
 
     async function restoreCatalog() {
       try {
-        const xtreamSessionResponse = await fetch(
-          iptvApiUrl('/api/iptv/xtream/session'),
-        );
+        const xtreamSessionResponse = await iptvFetch('/api/iptv/xtream/session');
 
         if (xtreamSessionResponse.ok) {
           const xtreamSession = await readResponse<{
@@ -529,7 +521,7 @@ export function IptvPanel({
           }
         }
 
-        const response = await fetch(iptvApiUrl('/api/iptv/catalog'));
+        const response = await iptvFetch('/api/iptv/catalog');
 
         if (!response.ok) return;
 
@@ -626,7 +618,7 @@ export function IptvPanel({
     setXtreamResult(null);
 
     try {
-      const response = await fetch(iptvApiUrl('/api/iptv/test-xtream'), {
+      const response = await iptvFetch('/api/iptv/test-xtream', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -707,7 +699,7 @@ export function IptvPanel({
     setError('');
 
     try {
-      const response = await fetch(iptvApiUrl('/api/iptv/catalog'), {
+      const response = await iptvFetch('/api/iptv/catalog', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -976,10 +968,8 @@ export function IptvPanel({
     setSelectedSeasonId('');
 
     try {
-      const response = await fetch(
-        iptvApiUrl(
-          `/api/iptv/xtream/series/${encodeURIComponent(series.id)}`,
-        ),
+      const response = await iptvFetch(
+        `/api/iptv/xtream/series/${encodeURIComponent(series.id)}`,
       );
 
       const data = await readResponse<XtreamSeriesResponse>(response);
@@ -1054,8 +1044,8 @@ export function IptvPanel({
     setError('');
 
     try {
-      const response = await fetch(
-        iptvApiUrl(`/api/iptv/xtream/vod/${encodeURIComponent(channel.id)}`),
+      const response = await iptvFetch(
+        `/api/iptv/xtream/vod/${encodeURIComponent(channel.id)}`,
       );
       const details = await readResponse<XtreamVodResponse>(response);
       onSelectChannel({
@@ -1128,7 +1118,7 @@ export function IptvPanel({
         const endpoint = catalogMode === 'xtream'
           ? `/api/iptv/xtream/search?${params.toString()}`
           : `/api/iptv/catalog/items?${params.toString()}`;
-        const response = await fetch(iptvApiUrl(endpoint));
+        const response = await iptvFetch(endpoint);
 
         if (catalogMode === 'xtream') {
           const data = await readResponse<XtreamSearchResponse>(response);

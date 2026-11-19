@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
 import mpegts from 'mpegts.js';
-import { iptvApiUrl } from '../iptv/api';
+import { iptvFetch } from '../iptv/api';
 import {
   AutoplayBlockedError,
   type PlayerCallbacks,
@@ -390,10 +390,8 @@ export function Html5Player({ source, callbacks }: Props) {
 
     const loadSidecar = async () => {
       try {
-        const response = await fetch(
-          iptvApiUrl(
-            `/api/iptv/subtitle?url=${encodeURIComponent(selectedTrack.url)}`,
-          ),
+        const response = await iptvFetch(
+          `/api/iptv/subtitle?url=${encodeURIComponent(selectedTrack.url)}`,
         );
         if (!response.ok) {
           throw new Error('Altyazı dosyası sunucudan alınamadı.');

@@ -1,8 +1,9 @@
 
 import express, { type Request, type Response as ExpressResponse } from 'express';
+import { createClient } from '@supabase/supabase-js';
 import { isIP } from 'node:net';
 import { lookup } from 'node:dns/promises';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { Readable } from 'node:stream';
 
 export const app = express();
@@ -72,6 +73,20 @@ let xtreamEnvironmentError: string | null = null;
 const xtreamItemsCache = new Map<string, XtreamCacheEntry>();
 const xtreamSearchIndexCache = new Map<string, XtreamCacheEntry>();
 
+const supabaseUrl = process.env.VITE_SUPABASE_URL?.trim();
+const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY?.trim();
+const supabaseAuthClient = supabaseUrl && supabaseAnonKey
+    ? createClient(supabaseUrl, supabaseAnonKey, {
+        auth: {
+            autoRefreshToken: false,
+            persistSession: false,
+            detectSessionInUrl: false,
+        },
+    })
+    : null;
+const verifiedAccessTokens = new Map<string, { userId: string; expiresAt: number }>();
+const pendingAccessTokenChecks = new Map<string, Promise<string | null>>();
+
 app.use(express.json({ limit: '10kb' }));
 
 const allowedIptvOrigins = (process.env.IPTV_ALLOWED_ORIGINS || '')
@@ -84,8 +99,9 @@ app.use((req, res, next) => {
 
     if (origin && allowedIptvOrigins.includes(origin)) {
         res.setHeader('Access-Control-Allow-Origin', origin);
-        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, POST, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+        res.setHeader('Access-Control-Expose-Headers', 'Accept-Ranges, Content-Length, Content-Range');
         res.append('Vary', 'Origin');
     }
 
@@ -98,6 +114,182 @@ app.use((req, res, next) => {
     }
 
     next();
+});
+
+function jwtExpirationTime(token: string): number | null {
+    try {
+        const payload = token.split('.')[1];
+        if (!payload) return null;
+        const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as {
+            exp?: unknown;
+        };
+        return typeof claims.exp === 'number' ? claims.exp * 1000 : null;
+    } catch {
+        return null;
+    }
+}
+
+async function verifySupabaseAccessToken(token: string): Promise<string | null> {
+    const now = Date.now();
+    const cached = verifiedAccessTokens.get(token);
+    if (cached && cached.expiresAt > now) return cached.userId;
+
+    const pending = pendingAccessTokenChecks.get(token);
+    if (pending) return pending;
+    if (!supabaseAuthClient) return null;
+
+    const check = (async () => {
+        const { data, error } = await supabaseAuthClient.auth.getUser(token);
+        if (error || !data.user) return null;
+
+        const tokenExpiry = jwtExpirationTime(token);
+        const expiresAt = Math.min(tokenExpiry ?? now + 30_000, now + 30_000);
+        verifiedAccessTokens.set(token, { userId: data.user.id, expiresAt });
+        if (verifiedAccessTokens.size > 1000) {
+            for (const [cachedToken, value] of verifiedAccessTokens) {
+                if (value.expiresAt <= now) verifiedAccessTokens.delete(cachedToken);
+            }
+            while (verifiedAccessTokens.size > 1000) {
+                const oldestToken = verifiedAccessTokens.keys().next().value;
+                if (!oldestToken) break;
+                verifiedAccessTokens.delete(oldestToken);
+            }
+        }
+        return data.user.id;
+    })();
+
+    pendingAccessTokenChecks.set(token, check);
+    try {
+        return await check;
+    } finally {
+        pendingAccessTokenChecks.delete(token);
+    }
+}
+
+interface PlaybackTokenPayload {
+    sub: string;
+    hosts: string[];
+    exp: number;
+}
+
+function signPlaybackToken(payload: PlaybackTokenPayload): string {
+    const secret = process.env.IPTV_PLAYBACK_SECRET;
+    if (!secret || Buffer.byteLength(secret) < 32) {
+        throw new Error('IPTV_PLAYBACK_SECRET en az 32 bayt olmalıdır.');
+    }
+    const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const signature = createHmac('sha256', secret).update(encodedPayload).digest('base64url');
+    return `${encodedPayload}.${signature}`;
+}
+
+function verifyPlaybackToken(token: string): PlaybackTokenPayload | null {
+    const secret = process.env.IPTV_PLAYBACK_SECRET;
+    if (!secret || Buffer.byteLength(secret) < 32) return null;
+
+    const [encodedPayload, signature, extra] = token.split('.');
+    if (!encodedPayload || !signature || extra) return null;
+
+    const expected = createHmac('sha256', secret).update(encodedPayload).digest();
+    let received: Buffer;
+    try {
+        received = Buffer.from(signature, 'base64url');
+    } catch {
+        return null;
+    }
+    if (expected.length !== received.length || !timingSafeEqual(expected, received)) return null;
+
+    try {
+        const payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8')) as PlaybackTokenPayload;
+        if (
+            typeof payload.sub !== 'string' ||
+            !Array.isArray(payload.hosts) ||
+            payload.hosts.some((host) => typeof host !== 'string') ||
+            typeof payload.exp !== 'number' ||
+            payload.exp <= Math.floor(Date.now() / 1000)
+        ) return null;
+        return payload;
+    } catch {
+        return null;
+    }
+}
+
+// Every IPTV endpoint requires a valid Supabase session. Media elements cannot
+// attach headers, so stream requests may carry their short-lived session JWT in
+// the query string; all other endpoints accept it only in Authorization.
+app.use('/api/iptv', async (req, res, next) => {
+    const routePath = `${req.baseUrl}${req.path}`;
+    const isStreamRequest = routePath === '/api/iptv/stream' ||
+        routePath.startsWith('/api/iptv/stream/');
+    if (isStreamRequest && typeof req.query.playback_token === 'string') {
+        const payload = verifyPlaybackToken(req.query.playback_token);
+        const rawUrl = req.query.url;
+        let requestedHost = '';
+        try {
+            if (typeof rawUrl === 'string') requestedHost = new URL(rawUrl).hostname.toLowerCase();
+        } catch {
+            requestedHost = '';
+        }
+        if (payload && requestedHost && payload.hosts.includes(requestedHost)) {
+            res.locals.iptvUserId = payload.sub;
+            return next();
+        }
+        return res.status(401).json({ error: 'Oynatma izni geçersiz veya süresi dolmuş.' });
+    }
+
+    const authorization = req.header('authorization') || '';
+    const token = /^Bearer\s+(.+)$/i.exec(authorization)?.[1] || '';
+
+    if (!token) {
+        return res.status(401).json({ error: 'IPTV için oturum açmanız gerekiyor.' });
+    }
+
+    try {
+        const userId = await verifySupabaseAccessToken(token);
+        if (!userId) {
+            return res.status(401).json({ error: 'Oturum geçersiz veya süresi dolmuş.' });
+        }
+        res.locals.iptvUserId = userId;
+        return next();
+    } catch {
+        return res.status(503).json({ error: 'Oturum doğrulama hizmetine ulaşılamıyor.' });
+    }
+});
+
+app.post('/api/iptv/playback-token', async (req, res) => {
+    try {
+        const credentials = getActiveCredentials();
+        const rawUrl = req.body?.url;
+        if (typeof rawUrl !== 'string' || rawUrl.length > 4096) {
+            return res.status(400).json({ error: 'Geçersiz yayın adresi.' });
+        }
+
+        const target = new URL(rawUrl);
+        if (!['http:', 'https:'].includes(target.protocol) || target.username || target.password) {
+            return res.status(400).json({ error: 'Yayın adresi desteklenmiyor.' });
+        }
+
+        const providerHost = new URL(credentials.serverUrl).hostname.toLowerCase();
+        const allowedHosts = (process.env.IPTV_STREAM_HOSTS || '')
+            .split(',')
+            .map((host) => host.trim().toLowerCase())
+            .filter(Boolean);
+        const hosts = Array.from(new Set([providerHost, ...allowedHosts]));
+        if (!hosts.includes(target.hostname.toLowerCase())) {
+            return res.status(403).json({ error: 'Bu yayın sunucusuna izin verilmiyor.' });
+        }
+
+        await validateServerUrl(`${target.protocol}//${target.host}/`);
+        const token = signPlaybackToken({
+            sub: String(res.locals.iptvUserId),
+            hosts,
+            exp: Math.floor(Date.now() / 1000) + 60 * 60,
+        });
+        return res.json({ token, expiresIn: 3600 });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Oynatma izni üretilemedi.';
+        console.error('[IPTV Playback Token Error]', message);
+        return res.status(503).json({ error: message });
+    }
 });
 
 // --------------------------------------------------
@@ -1099,9 +1291,14 @@ const handleIptvStream = async (req: Request, res: ExpressResponse) => {
 
         if (isPlaylist) {
             const playlist = await readLimitedResponse(upstream, MAX_HLS_PLAYLIST_SIZE);
+            const playbackToken = typeof req.query.playback_token === 'string'
+                ? req.query.playback_token
+                : '';
             const proxyUrl = (uri: string) => {
                 const resolved = new URL(uri, streamUrl);
-                return `/api/iptv/stream?url=${encodeURIComponent(resolved.toString())}`;
+                const parameters = new URLSearchParams({ url: resolved.toString() });
+                if (playbackToken) parameters.set('playback_token', playbackToken);
+                return `/api/iptv/stream?${parameters.toString()}`;
             };
             const rewritten = playlist
                 .split(/\r?\n/)
